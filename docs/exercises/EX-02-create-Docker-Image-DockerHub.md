@@ -187,9 +187,9 @@ Entweder seid ihr nicht eingeloggt (`docker login`) oder der Image-Name stimmt n
 
 ---
 
-## Schritt 9: Als GitHub-Actions-Job integrieren (im Repo bereits umgesetzt)
+## Schritt 9: Als GitHub-Actions-Job integrieren
 
-Die Schritte 1–7 lassen sich vollständig automatisieren: nach jedem erfolgreichen Deploy auf `main` soll die Pipeline automatisch ein Image bauen, taggen und auf Docker Hub pushen. Dieses Repository enthält die fertige Referenzlösung — schaut euch `Dockerfile`, `.dockerignore`, `nginx.conf` und den `docker`-Job in `.github/workflows/deploy.yml` an, bevor ihr eure eigene Lösung damit vergleicht.
+Die Schritte 1–7 lassen sich vollständig automatisieren: nach jedem erfolgreichen Deploy auf `main` soll die Pipeline automatisch ein Image bauen, taggen und auf Docker Hub pushen. Ergänzt dazu die in [EX-01](./EX-01-deploy-AWS-EC2.md) angelegte `.github/workflows/deploy.yml` um einen neuen Job `docker`, der nach dem `deploy`-Job läuft — fügt ihn auf der gleichen Einrückungsebene wie `test`, `build` und `deploy` am Ende der Datei an:
 
 ### Neuer Job `docker` in `deploy.yml`
 

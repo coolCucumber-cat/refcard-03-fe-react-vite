@@ -1,4 +1,4 @@
-# EX-01 – Deployment einer React/Vite-App auf AWS EC2 mit GitHub Actions
+    # EX-01 – Deployment einer React/Vite-App auf AWS EC2 mit GitHub Actions
 
 ## Lernziele
 
@@ -6,7 +6,7 @@ Nach dieser Übung könnt ihr:
 
 - ein bestehendes lokales Git-Repository mit einem leeren GitHub-Repository verbinden und pushen
 - eine EC2-Instanz für das Hosting einer statischen Web-App vorbereiten (nginx)
-- eine GitHub-Actions-Pipeline mit den Jobs **test → build → deploy** nachvollziehen
+- eine GitHub-Actions-Pipeline mit den Jobs **test → build → deploy** selbst schreiben
 - die für den Deploy-Job nötigen **Secrets** und **Variables** in GitHub konfigurieren
 - einen Workflow-Run beobachten, Fehler lesen und gezielt beheben
 
@@ -51,9 +51,114 @@ git push -u origin main
 
 ---
 
-## Schritt 2: Workflow-Datei verstehen
+## Schritt 2: Workflow-Datei anlegen
 
-Die Pipeline liegt in `.github/workflows/deploy.yml` und besteht aus drei Jobs:
+Im Starting-Point-Repo gibt es noch keine Pipeline — die legt ihr jetzt selbst an. `npm test` (Vitest) ist im Repo bereits eingerichtet, die Pipeline drumherum fehlt noch.
+
+Legt `.github/workflows/deploy.yml` mit folgendem Inhalt an:
+
+```yaml
+name: CI/CD auf AWS EC2
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  NODE_VERSION: '24'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Abhängigkeiten installieren
+        run: npm ci
+
+      - name: Tests ausführen
+        run: npm test
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Abhängigkeiten installieren
+        run: npm ci
+
+      - name: Produktions-Build erstellen
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_IMGS: ${{ vars.VITE_IMGS || 'items' }}
+
+      - name: Build-Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+          retention-days: 7
+
+  deploy:
+    name: Deploy auf EC2
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    environment: production
+    steps:
+      - name: Build-Artefakt herunterladen
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+
+      - name: SSH-Key einrichten
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Dateien auf EC2 übertragen
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            dist/ \
+            "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}:/tmp/biztrips-build/"
+
+      - name: Auf EC2 veröffentlichen
+        run: |
+          ssh -T -i ~/.ssh/deploy_key "${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }}" '
+            set -euo pipefail
+            sudo mkdir -p /var/www/biztrips
+            sudo rsync -a --delete /tmp/biztrips-build/ /var/www/biztrips/
+            sudo systemctl reload nginx
+            rm -rf /tmp/biztrips-build
+          ' < /dev/null
+
+      - name: SSH-Key entfernen
+        if: always()
+        run: rm -f ~/.ssh/deploy_key
+```
+
+Damit besteht die Pipeline aus drei Jobs:
 
 | Job | Zweck |
 | --- | --- |
@@ -67,7 +172,7 @@ Wichtige Details im `deploy`-Job:
 - `if: github.ref == 'refs/heads/main' && ...` — der Deploy läuft nur bei einem Push auf `main`, nicht bei Pull Requests
 - Der Job schreibt den privaten SSH-Key temporär nach `~/.ssh/deploy_key`, überträgt die Dateien via `rsync`, und entfernt den Key am Ende garantiert wieder (`if: always()`)
 
-Lest euch die Datei einmal komplett durch, bevor ihr weitermacht.
+Lest euch die Datei nach dem Anlegen noch einmal komplett durch, bevor ihr weitermacht — der `docker`-Job aus [EX-02](./EX-02-create-Docker-Image-DockerHub.md) wird später an diese Datei angehängt.
 
 ---
 
